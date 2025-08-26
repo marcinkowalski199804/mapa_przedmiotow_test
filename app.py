@@ -1,6 +1,7 @@
 import streamlit as st
+import pandas as pd
 import re
-from openpyxl import load_workbook, Workbook
+from openpyxl import Workbook
 from openpyxl.styles import PatternFill, Border, Side, Font, Alignment
 from io import BytesIO
 
@@ -9,193 +10,123 @@ st.title("Mapa przedmiotów")
 uploaded_file = st.file_uploader("Prześlij plik Excel (.xlsx)", type=["xlsx"])
 
 if uploaded_file:
-    uploaded_file.seek(0)  # reset wskaźnika pliku
+    # Wczytanie arkuszy przez pandas
+    baza_df = pd.read_excel(uploaded_file, sheet_name="Baza")
+    uploaded_file.seek(0)
+    stara_df = pd.read_excel(uploaded_file, sheet_name="STARA mapa")
 
-    # wczytanie Excela z data_only=True
-    wb = load_workbook(uploaded_file, data_only=True)
-    
     # diagnostyka
-    st.write("Arkusze w pliku:", wb.sheetnames)
-    
-    if "Baza" not in wb.sheetnames or "STARA mapa" not in wb.sheetnames:
-        st.error("Plik musi zawierać arkusze 'Baza' i 'STARA mapa'")
-    else:
-        ws_baza = wb["Baza"]
-        ws_stara = wb["STARA mapa"]
+    st.write("Pierwsze 5 wierszy Baza:")
+    st.dataframe(baza_df.head())
+    st.write("Pierwsze 5 wierszy STARA mapa:")
+    st.dataframe(stara_df.head())
 
-        # pokaż pierwsze 5 wierszy dla diagnostyki
-        st.write("Pierwsze 5 wierszy z Baza:")
-        for i, row in enumerate(ws_baza.iter_rows(min_row=1, max_row=5, values_only=True), 1):
-            st.write(f"Wiersz {i}: {row}")
+    # Tworzymy mapę maili
+    def clean_nazwisko(nazwisko):
+        if pd.isna(nazwisko):
+            return ""
+        return re.sub(r"\(.*?\)", "", str(nazwisko)).strip().lower()
 
-        st.write("Pierwsze 5 wierszy z STARA mapa:")
-        for i, row in enumerate(ws_stara.iter_rows(min_row=1, max_row=5, values_only=True), 1):
-            st.write(f"Wiersz {i}: {row}")
+    mail_map = {}
+    for _, row in stara_df.iterrows():
+        imie = str(row[2]).strip() if pd.notna(row[2]) else ""
+        nazwisko = str(row[3]).strip() if pd.notna(row[3]) else ""
+        mail = str(row[1]).strip() if pd.notna(row[1]) else ""
+        if imie and nazwisko and mail:
+            key = f"{imie.lower()} {clean_nazwisko(nazwisko.lower())}"
+            mail_map[key] = mail
 
-        # Funkcje pomocnicze
-        def clean_nazwisko(nazwisko):
-            if not nazwisko:
-                return ""
-            return re.sub(r"\(.*?\)", "", str(nazwisko)).strip().lower()
+    def find_mail_safe(imie, nazwisko, mail_map):
+        key_full = f"{imie.lower()} {clean_nazwisko(nazwisko.lower())}"
+        if key_full in mail_map:
+            return mail_map[key_full]
+        return "BRAK MAILA"
 
-        mail_map = {}
-        for row in ws_stara.iter_rows(min_row=2, values_only=True):
-            imie = str(row[2]).strip() if row[2] else ""
-            nazwisko = str(row[3]).strip() if row[3] else ""
-            mail = str(row[1]).strip() if row[1] else ""
-            if imie and nazwisko and mail:
-                key = f"{imie.lower()} {nazwisko.lower()}"
-                mail_map[key] = mail
+    # Style
+    color_map = {"LO": "ADD8E6", "1-3 SP": "FFFF99", "4-8 SP": "CCFFCC"}
+    green_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
+    red_fill = PatternFill(start_color="FF7F7F", end_color="FF7F7F", fill_type="solid")
+    thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
+                         top=Side(style='thin'), bottom=Side(style='thin'))
 
-        def find_mail_safe(imie, nazwisko, mail_map):
-            key_full = f"{imie.lower()} {nazwisko.lower()}"
-            if key_full in mail_map:
-                return mail_map[key_full]
-            candidates = []
-            for k, mail in mail_map.items():
-                k_imie, k_nazwisko = k.split(" ", 1)
-                k_nazwisko_clean = clean_nazwisko(k_nazwisko)
-                if imie.lower() == k_imie and nazwisko.lower() == k_nazwisko_clean:
-                    candidates.append(mail)
-            if len(candidates) == 1:
-                return candidates[0]
-            else:
-                return "BRAK MAILA"
+    # Nowy skoroszyt
+    new_wb = Workbook()
+    ws_mapa = new_wb.active
+    ws_mapa.title = "MAPA PRZEDMIOTÓW"
+    ws_brak_id = new_wb.create_sheet("BRAKUJĄCE ID")
+    ws_brak_mail = new_wb.create_sheet("BRAKUJĄCE EMAILE")
 
-        color_map = {"LO": "ADD8E6", "1-3 SP": "FFFF99", "4-8 SP": "CCFFCC"}
-        green_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
-        red_fill = PatternFill(start_color="FF7F7F", end_color="FF7F7F", fill_type="solid")
-        thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
-                             top=Side(style='thin'), bottom=Side(style='thin'))
+    # Nagłówki
+    headers = ["ID", "Email", "Imię", "Nazwisko", "Przedmiot", "Poziom edukacyjny", "Rozszerzenie", "Aktywny"]
+    for col_num, header in enumerate(headers, 1):
+        cell = ws_mapa.cell(row=1, column=col_num, value=header)
+        cell.font = Font(bold=True)
+        cell.border = thin_border
+        cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        # Nowy skoroszyt i arkusze
-        new_wb = Workbook()
-        ws_mapa = new_wb.active
-        ws_mapa.title = "MAPA PRZEDMIOTÓW"
-        ws_brak_id = new_wb.create_sheet("BRAKUJĄCE ID")
-        ws_brak_mail = new_wb.create_sheet("BRAKUJĄCE EMAILE")
+    # Arkusze brak ID i brak maila
+    ws_brak_id.append(["Imię", "Nazwisko"])
+    ws_brak_mail.append(["Imię", "Nazwisko"])
 
-        # Nagłówki MAPA PRZEDMIOTÓW
-        headers = ["ID", "Email", "Imię", "Nazwisko", "Przedmiot", "Poziom edukacyjny", "Rozszerzenie", "Aktywny"]
-        for col_num, header in enumerate(headers, 1):
-            cell = ws_mapa.cell(row=1, column=col_num, value=header)
-            cell.border = thin_border
-            cell.font = Font(bold=True)
-            cell.alignment = Alignment(horizontal="center", vertical="center")
+    row_out = 2
+    brak_id_set = set()
+    brak_mail_set = set()
 
-        # Arkusz BRAKUJĄCE ID
-        ws_brak_id.merge_cells('A1:B1')
-        ws_brak_id['A1'].value = "Osoby, które nie mają ID"
-        ws_brak_id['A1'].font = Font(bold=True)
-        ws_brak_id['A1'].alignment = Alignment(horizontal="center", vertical="center")
-        ws_brak_id.append(["Imię", "Nazwisko"])
-        for c in ws_brak_id[2]:
-            c.font = Font(bold=True)
-            c.alignment = Alignment(horizontal="center", vertical="center")
-            c.border = thin_border
+    # Przetwarzanie danych
+    for _, row in baza_df.iterrows():
+        _id = row[0]
+        imie = str(row[1]).strip() if pd.notna(row[1]) else ""
+        nazwisko = str(row[2]).strip() if pd.notna(row[2]) else ""
+        sp_subjects = row[4] if pd.notna(row[4]) else ""
+        lo_subjects = row[5] if pd.notna(row[5]) else ""
 
-        # Arkusz BRAKUJĄCE EMAILE
-        ws_brak_mail.merge_cells('A1:B1')
-        ws_brak_mail['A1'].value = "Osoby, które nie mają Email"
-        ws_brak_mail['A1'].font = Font(bold=True)
-        ws_brak_mail['A1'].alignment = Alignment(horizontal="center", vertical="center")
-        ws_brak_mail.append(["Imię", "Nazwisko"])
-        for c in ws_brak_mail[2]:
-            c.font = Font(bold=True)
-            c.alignment = Alignment(horizontal="center", vertical="center")
-            c.border = thin_border
+        mail = find_mail_safe(imie, nazwisko, mail_map)
 
-        brak_id_set = set()
-        brak_mail_set = set()
-        row_out = 2
+        # Funkcja do dodawania wiersza
+        def add_row(subj, typ, rozszerzenie, aktywny):
+            nonlocal row_out
+            values = [_id, mail, imie, nazwisko, subj, typ, rozszerzenie, aktywny]
+            for col_num, val in enumerate(values, 1):
+                cell = ws_mapa.cell(row=row_out, column=col_num, value=val)
+                if col_num == 6 and typ in color_map:
+                    cell.fill = PatternFill(start_color=color_map[typ], end_color=color_map[typ], fill_type="solid")
+                if col_num == 7:
+                    cell.fill = red_fill if rozszerzenie=="NIE" else green_fill
+                if col_num == 8:
+                    cell.fill = green_fill
+                cell.border = thin_border
+            row_out +=1
 
-        # Przetwarzanie danych
-        for row in ws_baza.iter_rows(min_row=2, values_only=True):
-            _id = row[0]
-            imie = str(row[1]).strip() if row[1] else ""
-            nazwisko = str(row[2]).strip() if row[2] else ""
-            sp_subjects = row[4]
-            lo_subjects = row[5]
+            if not _id and (imie, nazwisko) not in brak_id_set:
+                ws_brak_id.append([imie, nazwisko])
+                brak_id_set.add((imie, nazwisko))
+            if mail=="BRAK MAILA" and (imie, nazwisko) not in brak_mail_set:
+                ws_brak_mail.append([imie, nazwisko])
+                brak_mail_set.add((imie, nazwisko))
 
-            mail = find_mail_safe(imie, nazwisko, mail_map)
+        # SP
+        if sp_subjects:
+            for subj in str(sp_subjects).split(","):
+                subj = subj.strip()
+                if subj:
+                    typ = "1-3 SP" if subj.lower()=="edukacja wczesnoszkolna" else "4-8 SP"
+                    add_row(subj, typ, "NIE", "TAK")
 
-            # SP
-            if sp_subjects:
-                for subj in [s.strip() for s in str(sp_subjects).split(",")]:
-                    if subj:
-                        typ = "1-3 SP" if subj.lower() == "edukacja wczesnoszkolna" else "4-8 SP"
-                        values = [_id, mail, imie, nazwisko, subj, typ, "NIE", "TAK"]
+        # LO
+        if lo_subjects:
+            for subj in str(lo_subjects).split(","):
+                subj = subj.strip()
+                if subj:
+                    add_row(subj, "LO", "TAK", "TAK")
 
-                        if not _id:
-                            key = (imie, nazwisko)
-                            if key not in brak_id_set:
-                                ws_brak_id.append([imie, nazwisko])
-                                for c in ws_brak_id[ws_brak_id.max_row]:
-                                    c.border = thin_border
-                                brak_id_set.add(key)
+    # Zapis do BytesIO
+    output = BytesIO()
+    new_wb.save(output)
+    output.seek(0)
 
-                        if mail == "BRAK MAILA":
-                            key = (imie, nazwisko)
-                            if key not in brak_mail_set:
-                                ws_brak_mail.append([imie, nazwisko])
-                                for c in ws_brak_mail[ws_brak_mail.max_row]:
-                                    c.border = thin_border
-                                brak_mail_set.add(key)
-
-                        for col_num, val in enumerate(values, 1):
-                            cell = ws_mapa.cell(row=row_out, column=col_num, value=val)
-                            if col_num == 6 and typ in color_map:
-                                cell.fill = PatternFill(start_color=color_map[typ],
-                                                        end_color=color_map[typ], fill_type="solid")
-                            if col_num == 7:
-                                cell.fill = red_fill
-                            if col_num == 8:
-                                cell.fill = green_fill
-                            cell.border = thin_border
-                        row_out += 1
-
-            # LO
-            if lo_subjects:
-                for subj in [s.strip() for s in str(lo_subjects).split(",")]:
-                    if subj:
-                        typ = "LO"
-                        values = [_id, mail, imie, nazwisko, subj, typ, "TAK", "TAK"]
-
-                        if not _id:
-                            key = (imie, nazwisko)
-                            if key not in brak_id_set:
-                                ws_brak_id.append([imie, nazwisko])
-                                for c in ws_brak_id[ws_brak_id.max_row]:
-                                    c.border = thin_border
-                                brak_id_set.add(key)
-
-                        if mail == "BRAK MAILA":
-                            key = (imie, nazwisko)
-                            if key not in brak_mail_set:
-                                ws_brak_mail.append([imie, nazwisko])
-                                for c in ws_brak_mail[ws_brak_mail.max_row]:
-                                    c.border = thin_border
-                                brak_mail_set.add(key)
-
-                        for col_num, val in enumerate(values, 1):
-                            cell = ws_mapa.cell(row=row_out, column=col_num, value=val)
-                            if col_num == 6 and typ in color_map:
-                                cell.fill = PatternFill(start_color=color_map[typ],
-                                                        end_color=color_map[typ], fill_type="solid")
-                            if col_num == 7:
-                                cell.fill = green_fill
-                            if col_num == 8:
-                                cell.fill = green_fill
-                            cell.border = thin_border
-                        row_out += 1
-
-        # Zapis do BytesIO
-        output = BytesIO()
-        new_wb.save(output)
-        output.seek(0)
-        st.download_button(
-            label="Pobierz przetworzony plik",
-            data=output,
-            file_name=f"{uploaded_file.name.split('.')[0]}_wynik.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+    st.download_button(
+        label="Pobierz przetworzony plik",
+        data=output,
+        file_name=f"{uploaded_file.name.split('.')[0]}_wynik.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
