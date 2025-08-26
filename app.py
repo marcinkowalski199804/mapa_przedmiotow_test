@@ -4,13 +4,14 @@ import pandas as pd
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import PatternFill, Border, Side, Font, Alignment
 from io import BytesIO
+import os
 
 # Ustawienie layoutu strony
 st.set_page_config(layout="wide")
 
 # Tytuł aplikacji
-st.title("🗺️ Generator pliku excel MAPY PRZEDMIOTÓW")
-st.write("Wgraj plik excel według ustalonych zasad.")
+st.title("🗺️ Generator pliku excel - MAPA PRZEDMIOTÓW")
+st.write("Wgraj plik excel z twoją bazą danych według ustalonych kryteriów.")
 
 # Sekcja do przesyłania pliku
 st.markdown("### 1. Prześlij plik Excel (.xlsx)")
@@ -18,13 +19,15 @@ uploaded_file = st.file_uploader("Wybierz plik", type=["xlsx"])
 
 if uploaded_file:
     try:
-        # Zapisanie pliku do bufora w pamięci
-        temp_file = BytesIO(uploaded_file.getvalue())
+        # Zapisanie pliku tymczasowo na dysku
+        temp_file_path = "temp_uploaded_file.xlsx"
+        with open(temp_file_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
 
-        # Funkcja przetwarzająca plik, bez GUI
-        def process_excel(file_buffer):
+        # Funkcja przetwarzająca plik z dysku
+        def process_excel(filepath):
             try:
-                wb = load_workbook(file_buffer)
+                wb = load_workbook(filepath)
                 ws_baza = wb["Baza"]
                 ws_stara = wb["STARA mapa"]
             except KeyError as e:
@@ -69,18 +72,48 @@ if uploaded_file:
             ws_brak_id = new_wb.create_sheet("BRAKUJĄCE ID")
             ws_brak_mail = new_wb.create_sheet("BRAKUJĄCE EMAILE")
 
-            # Nagłówki i style
+            # Kolory i obramowania
+            color_map = {"LO": "ADD8E6", "1-3 SP": "FFFF99", "4-8 SP": "CCFFCC"}
+            green_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
+            red_fill = PatternFill(start_color="FF7F7F", end_color="FF7F7F", fill_type="solid")
+            thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
+                                 top=Side(style='thin'), bottom=Side(style='thin'))
+
+            # Nagłówki MAPA PRZEDMIOTÓW
             headers = ["ID", "Email", "Imię", "Nazwisko", "Przedmiot", "Poziom edukacyjny", "Rozszerzenie", "Aktywny"]
-            ws_mapa.append(headers)
-            ws_brak_id.append(["Osoby, które nie mają ID"])
+            for col_num, header in enumerate(headers, 1):
+                cell = ws_mapa.cell(row=1, column=col_num, value=header)
+                cell.border = thin_border
+                cell.font = Font(bold=True)
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+
+            # Arkusz BRAKUJĄCE ID
             ws_brak_id.merge_cells('A1:B1')
+            cell = ws_brak_id['A1']
+            cell.value = "Osoby, które nie mają ID"
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
             ws_brak_id.append(["Imię", "Nazwisko"])
-            ws_brak_mail.append(["Osoby, które nie mają Email"])
+            for c in ws_brak_id[2]:
+                c.font = Font(bold=True)
+                c.alignment = Alignment(horizontal="center", vertical="center")
+                c.border = thin_border
+
+            # Arkusz BRAKUJĄCE EMAILE
             ws_brak_mail.merge_cells('A1:B1')
+            cell = ws_brak_mail['A1']
+            cell.value = "Osoby, które nie mają Email"
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
             ws_brak_mail.append(["Imię", "Nazwisko"])
+            for c in ws_brak_mail[2]:
+                c.font = Font(bold=True)
+                c.alignment = Alignment(horizontal="center", vertical="center")
+                c.border = thin_border
 
             brak_id_set = set()
             brak_mail_set = set()
+            row_out = 2
 
             for row in ws_baza.iter_rows(min_row=2, values_only=True):
                 _id = row[0]
@@ -97,11 +130,22 @@ if uploaded_file:
                         if subj:
                             typ = "1-3 SP" if subj.lower() == "edukacja wczesnoszkolna" else "4-8 SP"
                             values = [_id, mail, imie, nazwisko, subj, typ, "NIE", "TAK"]
-                            ws_mapa.append(values)
+                            
                             if not _id:
                                 brak_id_set.add((imie, nazwisko))
                             if mail == "BRAK MAILA":
                                 brak_mail_set.add((imie, nazwisko))
+
+                            for col_num, val in enumerate(values, 1):
+                                cell = ws_mapa.cell(row=row_out, column=col_num, value=val)
+                                if col_num == 6 and typ in color_map:
+                                    cell.fill = PatternFill(start_color=color_map[typ], end_color=color_map[typ], fill_type="solid")
+                                if col_num == 7:
+                                    cell.fill = red_fill
+                                if col_num == 8:
+                                    cell.fill = green_fill
+                                cell.border = thin_border
+                            row_out += 1
 
                 # Przetwarzanie przedmiotów LO
                 if lo_subjects:
@@ -109,34 +153,33 @@ if uploaded_file:
                         if subj:
                             typ = "LO"
                             values = [_id, mail, imie, nazwisko, subj, typ, "TAK", "TAK"]
-                            ws_mapa.append(values)
+
                             if not _id:
                                 brak_id_set.add((imie, nazwisko))
                             if mail == "BRAK MAILA":
                                 brak_mail_set.add((imie, nazwisko))
 
-            # Dodanie brakujących do arkuszy
+                            for col_num, val in enumerate(values, 1):
+                                cell = ws_mapa.cell(row=row_out, column=col_num, value=val)
+                                if col_num == 6 and typ in color_map:
+                                    cell.fill = PatternFill(start_color=color_map[typ], end_color=color_map[typ], fill_type="solid")
+                                if col_num == 7:
+                                    cell.fill = green_fill
+                                if col_num == 8:
+                                    cell.fill = green_fill
+                                cell.border = thin_border
+                            row_out += 1
+
+            # Dodanie brakujących do arkuszy z obramowaniami
             for imie, nazwisko in brak_id_set:
                 ws_brak_id.append([imie, nazwisko])
+                for c in ws_brak_id[ws_brak_id.max_row]:
+                    c.border = thin_border
             for imie, nazwisko in brak_mail_set:
                 ws_brak_mail.append([imie, nazwisko])
+                for c in ws_brak_mail[ws_brak_mail.max_row]:
+                    c.border = thin_border
 
-            # Stylowanie komórek (można pominąć, ale dla zachowania funkcjonalności z twojego kodu)
-            color_map = {"LO": "ADD8E6", "1-3 SP": "FFFF99", "4-8 SP": "CCFFCC"}
-            for row in ws_mapa.iter_rows(min_row=2):
-                typ = row[5].value
-                rozszerzenie = row[6].value
-                aktywny = row[7].value
-                
-                if typ in color_map:
-                    row[5].fill = PatternFill(start_color=color_map[typ], end_color=color_map[typ], fill_type="solid")
-                if rozszerzenie == "NIE":
-                    row[6].fill = PatternFill(start_color="FF7F7F", end_color="FF7F7F", fill_type="solid")
-                else:
-                    row[6].fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
-                if aktywny == "TAK":
-                    row[7].fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
-            
             # Zapisanie skoroszytu do bufora
             output_buffer = BytesIO()
             new_wb.save(output_buffer)
@@ -145,7 +188,10 @@ if uploaded_file:
 
         # Uruchomienie przetwarzania i wyświetlenie wyników
         with st.spinner('Przetwarzam plik...'):
-            output_buffer, brak_id, brak_mail = process_excel(temp_file)
+            output_buffer, brak_id, brak_mail = process_excel(temp_file_path)
+
+        # Usunięcie pliku tymczasowego
+        os.remove(temp_file_path)
 
         if output_buffer:
             st.success("Plik został pomyślnie przetworzony! 🎉")
