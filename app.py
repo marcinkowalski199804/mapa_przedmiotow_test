@@ -11,22 +11,33 @@ uploaded_file = st.file_uploader("Prześlij plik Excel (.xlsx)", type=["xlsx"])
 if uploaded_file:
     uploaded_file.seek(0)  # reset wskaźnika pliku
 
-    # Sprawdzenie, czy plik zawiera odpowiednie arkusze
-    wb_check = load_workbook(uploaded_file)
-    if "Baza" not in wb_check.sheetnames or "STARA mapa" not in wb_check.sheetnames:
+    # wczytanie Excela z data_only=True
+    wb = load_workbook(uploaded_file, data_only=True)
+    
+    # diagnostyka
+    st.write("Arkusze w pliku:", wb.sheetnames)
+    
+    if "Baza" not in wb.sheetnames or "STARA mapa" not in wb.sheetnames:
         st.error("Plik musi zawierać arkusze 'Baza' i 'STARA mapa'")
     else:
-        uploaded_file.seek(0)
-        wb = load_workbook(uploaded_file)
         ws_baza = wb["Baza"]
         ws_stara = wb["STARA mapa"]
 
+        # pokaż pierwsze 5 wierszy dla diagnostyki
+        st.write("Pierwsze 5 wierszy z Baza:")
+        for i, row in enumerate(ws_baza.iter_rows(min_row=1, max_row=5, values_only=True), 1):
+            st.write(f"Wiersz {i}: {row}")
+
+        st.write("Pierwsze 5 wierszy z STARA mapa:")
+        for i, row in enumerate(ws_stara.iter_rows(min_row=1, max_row=5, values_only=True), 1):
+            st.write(f"Wiersz {i}: {row}")
+
+        # Funkcje pomocnicze
         def clean_nazwisko(nazwisko):
             if not nazwisko:
                 return ""
             return re.sub(r"\(.*?\)", "", str(nazwisko)).strip().lower()
 
-        # Tworzymy mapę maili
         mail_map = {}
         for row in ws_stara.iter_rows(min_row=2, values_only=True):
             imie = str(row[2]).strip() if row[2] else ""
@@ -51,7 +62,6 @@ if uploaded_file:
             else:
                 return "BRAK MAILA"
 
-        # Kolory i obramowania
         color_map = {"LO": "ADD8E6", "1-3 SP": "FFFF99", "4-8 SP": "CCFFCC"}
         green_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
         red_fill = PatternFill(start_color="FF7F7F", end_color="FF7F7F", fill_type="solid")
