@@ -9,9 +9,15 @@ st.title("Mapa przedmiotów")
 uploaded_file = st.file_uploader("Prześlij plik Excel (.xlsx)", type=["xlsx"])
 
 if uploaded_file:
-    # Funkcja przetwarzająca plik (Twoja logika z Tkintera)
-    def process_file(file_stream, filename):
-        wb = load_workbook(file_stream)
+    uploaded_file.seek(0)  # reset wskaźnika pliku
+
+    # Sprawdzenie, czy plik zawiera odpowiednie arkusze
+    wb_check = load_workbook(uploaded_file)
+    if "Baza" not in wb_check.sheetnames or "STARA mapa" not in wb_check.sheetnames:
+        st.error("Plik musi zawierać arkusze 'Baza' i 'STARA mapa'")
+    else:
+        uploaded_file.seek(0)
+        wb = load_workbook(uploaded_file)
         ws_baza = wb["Baza"]
         ws_stara = wb["STARA mapa"]
 
@@ -20,6 +26,7 @@ if uploaded_file:
                 return ""
             return re.sub(r"\(.*?\)", "", str(nazwisko)).strip().lower()
 
+        # Tworzymy mapę maili
         mail_map = {}
         for row in ws_stara.iter_rows(min_row=2, values_only=True):
             imie = str(row[2]).strip() if row[2] else ""
@@ -44,30 +51,141 @@ if uploaded_file:
             else:
                 return "BRAK MAILA"
 
+        # Kolory i obramowania
         color_map = {"LO": "ADD8E6", "1-3 SP": "FFFF99", "4-8 SP": "CCFFCC"}
         green_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
         red_fill = PatternFill(start_color="FF7F7F", end_color="FF7F7F", fill_type="solid")
         thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
                              top=Side(style='thin'), bottom=Side(style='thin'))
 
+        # Nowy skoroszyt i arkusze
         new_wb = Workbook()
         ws_mapa = new_wb.active
         ws_mapa.title = "MAPA PRZEDMIOTÓW"
         ws_brak_id = new_wb.create_sheet("BRAKUJĄCE ID")
         ws_brak_mail = new_wb.create_sheet("BRAKUJĄCE EMAILE")
 
-        # Tu możesz wkleić resztę Twojej logiki kopiując z Tkintera (nagłówki, kolory, pętle itp.)
+        # Nagłówki MAPA PRZEDMIOTÓW
+        headers = ["ID", "Email", "Imię", "Nazwisko", "Przedmiot", "Poziom edukacyjny", "Rozszerzenie", "Aktywny"]
+        for col_num, header in enumerate(headers, 1):
+            cell = ws_mapa.cell(row=1, column=col_num, value=header)
+            cell.border = thin_border
+            cell.font = Font(bold=True)
+            cell.alignment = Alignment(horizontal="center", vertical="center")
 
-        # Na końcu zapis do BytesIO
+        # Arkusz BRAKUJĄCE ID
+        ws_brak_id.merge_cells('A1:B1')
+        ws_brak_id['A1'].value = "Osoby, które nie mają ID"
+        ws_brak_id['A1'].font = Font(bold=True)
+        ws_brak_id['A1'].alignment = Alignment(horizontal="center", vertical="center")
+        ws_brak_id.append(["Imię", "Nazwisko"])
+        for c in ws_brak_id[2]:
+            c.font = Font(bold=True)
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            c.border = thin_border
+
+        # Arkusz BRAKUJĄCE EMAILE
+        ws_brak_mail.merge_cells('A1:B1')
+        ws_brak_mail['A1'].value = "Osoby, które nie mają Email"
+        ws_brak_mail['A1'].font = Font(bold=True)
+        ws_brak_mail['A1'].alignment = Alignment(horizontal="center", vertical="center")
+        ws_brak_mail.append(["Imię", "Nazwisko"])
+        for c in ws_brak_mail[2]:
+            c.font = Font(bold=True)
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            c.border = thin_border
+
+        brak_id_set = set()
+        brak_mail_set = set()
+        row_out = 2
+
+        # Przetwarzanie danych
+        for row in ws_baza.iter_rows(min_row=2, values_only=True):
+            _id = row[0]
+            imie = str(row[1]).strip() if row[1] else ""
+            nazwisko = str(row[2]).strip() if row[2] else ""
+            sp_subjects = row[4]
+            lo_subjects = row[5]
+
+            mail = find_mail_safe(imie, nazwisko, mail_map)
+
+            # SP
+            if sp_subjects:
+                for subj in [s.strip() for s in str(sp_subjects).split(",")]:
+                    if subj:
+                        typ = "1-3 SP" if subj.lower() == "edukacja wczesnoszkolna" else "4-8 SP"
+                        values = [_id, mail, imie, nazwisko, subj, typ, "NIE", "TAK"]
+
+                        if not _id:
+                            key = (imie, nazwisko)
+                            if key not in brak_id_set:
+                                ws_brak_id.append([imie, nazwisko])
+                                for c in ws_brak_id[ws_brak_id.max_row]:
+                                    c.border = thin_border
+                                brak_id_set.add(key)
+
+                        if mail == "BRAK MAILA":
+                            key = (imie, nazwisko)
+                            if key not in brak_mail_set:
+                                ws_brak_mail.append([imie, nazwisko])
+                                for c in ws_brak_mail[ws_brak_mail.max_row]:
+                                    c.border = thin_border
+                                brak_mail_set.add(key)
+
+                        for col_num, val in enumerate(values, 1):
+                            cell = ws_mapa.cell(row=row_out, column=col_num, value=val)
+                            if col_num == 6 and typ in color_map:
+                                cell.fill = PatternFill(start_color=color_map[typ],
+                                                        end_color=color_map[typ], fill_type="solid")
+                            if col_num == 7:
+                                cell.fill = red_fill
+                            if col_num == 8:
+                                cell.fill = green_fill
+                            cell.border = thin_border
+                        row_out += 1
+
+            # LO
+            if lo_subjects:
+                for subj in [s.strip() for s in str(lo_subjects).split(",")]:
+                    if subj:
+                        typ = "LO"
+                        values = [_id, mail, imie, nazwisko, subj, typ, "TAK", "TAK"]
+
+                        if not _id:
+                            key = (imie, nazwisko)
+                            if key not in brak_id_set:
+                                ws_brak_id.append([imie, nazwisko])
+                                for c in ws_brak_id[ws_brak_id.max_row]:
+                                    c.border = thin_border
+                                brak_id_set.add(key)
+
+                        if mail == "BRAK MAILA":
+                            key = (imie, nazwisko)
+                            if key not in brak_mail_set:
+                                ws_brak_mail.append([imie, nazwisko])
+                                for c in ws_brak_mail[ws_brak_mail.max_row]:
+                                    c.border = thin_border
+                                brak_mail_set.add(key)
+
+                        for col_num, val in enumerate(values, 1):
+                            cell = ws_mapa.cell(row=row_out, column=col_num, value=val)
+                            if col_num == 6 and typ in color_map:
+                                cell.fill = PatternFill(start_color=color_map[typ],
+                                                        end_color=color_map[typ], fill_type="solid")
+                            if col_num == 7:
+                                cell.fill = green_fill
+                            if col_num == 8:
+                                cell.fill = green_fill
+                            cell.border = thin_border
+                        row_out += 1
+
+        # Zapis do BytesIO
         output = BytesIO()
         new_wb.save(output)
         output.seek(0)
-        return output, f"{filename.split('.')[0]}_wynik.xlsx"
-
-    output_file, out_name = process_file(uploaded_file, uploaded_file.name)
-    st.download_button(
-        label="Pobierz przetworzony plik",
-        data=output_file,
-        file_name=out_name,
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
+        st.download_button(
+            label="Pobierz przetworzony plik",
+            data=output,
+            file_name=f"{uploaded_file.name.split('.')[0]}_wynik.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
