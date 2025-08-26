@@ -9,6 +9,11 @@ import os
 # Ustawienie layoutu strony
 st.set_page_config(layout="wide")
 
+# --- TUTAJ MOŻESZ WSTAWIĆ SWÓJ OBRAZ ---
+# Wklej bezpośredni link do logo w miejsce 'https://placehold.co/200x50'
+st.image("https://placehold.co/200x50", use_column_width=False)
+# ----------------------------------------
+
 # Tytuł aplikacji
 st.title("🗺️ Generator pliku excel - MAPA PRZEDMIOTÓW")
 st.write("Wgraj plik excel z twoją bazą danych według ustalonych kryteriów.")
@@ -222,3 +227,5 @@ if uploaded_file:
 
     except Exception as e:
         st.error(f"Wystąpił błąd podczas przetwarzania pliku: {e}")
+
+
