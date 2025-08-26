@@ -9,8 +9,8 @@ from io import BytesIO
 st.set_page_config(layout="wide")
 
 # Tytuł aplikacji
-st.title("🗺️ Generator MAPY PRZEDMIOTÓW")
-st.write("Przekształć plik Excela, aby uzyskać mapę przedmiotów z mailami i ID.")
+st.title("🗺️ Generator pliku excel MAPY PRZEDMIOTÓW")
+st.write("Wgraj plik excel według ustalonych zasad.")
 
 # Sekcja do przesyłania pliku
 st.markdown("### 1. Prześlij plik Excel (.xlsx)")
