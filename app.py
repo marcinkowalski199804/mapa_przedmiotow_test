@@ -1,22 +1,14 @@
 import re
 import os
-import tkinter as tk
-from tkinter import messagebox
-from tkinter.filedialog import askopenfilename
+from flask import Flask, request, send_file, render_template_string
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import PatternFill, Border, Side, Font, Alignment
-from tkinterdnd2 import TkinterDnD, DND_FILES
+from io import BytesIO
 
-def process_file(filepath):
-    if not filepath.lower().endswith(".xlsx"):
-        messagebox.showerror("Błąd", "To nie jest plik Excel (.xlsx)")
-        return
+app = Flask(__name__)
 
-    folder, filename = os.path.split(filepath)
-    name, ext = os.path.splitext(filename)
-    output_path = os.path.join(folder, f"{name}_wynik{ext}")
-
-    wb = load_workbook(filepath)
+def process_file(file_stream, filename):
+    wb = load_workbook(file_stream)
     ws_baza = wb["Baza"]
     ws_stara = wb["STARA mapa"]
 
@@ -25,7 +17,6 @@ def process_file(filepath):
             return ""
         return re.sub(r"\(.*?\)", "", str(nazwisko)).strip().lower()
 
-    # Mapa maili
     mail_map = {}
     for row in ws_stara.iter_rows(min_row=2, values_only=True):
         imie = str(row[2]).strip() if row[2] else ""
@@ -50,21 +41,18 @@ def process_file(filepath):
         else:
             return "BRAK MAILA"
 
-    # Kolory i obramowania
     color_map = {"LO": "ADD8E6", "1-3 SP": "FFFF99", "4-8 SP": "CCFFCC"}
     green_fill = PatternFill(start_color="90EE90", end_color="90EE90", fill_type="solid")
     red_fill = PatternFill(start_color="FF7F7F", end_color="FF7F7F", fill_type="solid")
     thin_border = Border(left=Side(style='thin'), right=Side(style='thin'),
                          top=Side(style='thin'), bottom=Side(style='thin'))
 
-    # Nowy skoroszyt i arkusze
     new_wb = Workbook()
     ws_mapa = new_wb.active
     ws_mapa.title = "MAPA PRZEDMIOTÓW"
     ws_brak_id = new_wb.create_sheet("BRAKUJĄCE ID")
     ws_brak_mail = new_wb.create_sheet("BRAKUJĄCE EMAILE")
 
-    # Nagłówki MAPA PRZEDMIOTÓW
     headers = ["ID", "Email", "Imię", "Nazwisko", "Przedmiot", "Poziom edukacyjny", "Rozszerzenie", "Aktywny"]
     for col_num, header in enumerate(headers, 1):
         cell = ws_mapa.cell(row=1, column=col_num, value=header)
@@ -72,7 +60,7 @@ def process_file(filepath):
         cell.font = Font(bold=True)
         cell.alignment = Alignment(horizontal="center", vertical="center")
 
-    # Arkusz BRAKUJĄCE ID
+    # BRAKUJĄCE ID
     ws_brak_id.merge_cells('A1:B1')
     cell = ws_brak_id['A1']
     cell.value = "Osoby, które nie mają ID"
@@ -84,7 +72,7 @@ def process_file(filepath):
         c.alignment = Alignment(horizontal="center", vertical="center")
         c.border = thin_border
 
-    # Arkusz BRAKUJĄCE EMAILE
+    # BRAKUJĄCE EMAILE
     ws_brak_mail.merge_cells('A1:B1')
     cell = ws_brak_mail['A1']
     cell.value = "Osoby, które nie mają Email"
@@ -96,7 +84,6 @@ def process_file(filepath):
         c.alignment = Alignment(horizontal="center", vertical="center")
         c.border = thin_border
 
-    # Zbiory dla unikalnych osób
     brak_id_set = set()
     brak_mail_set = set()
     row_out = 2
@@ -180,27 +167,32 @@ def process_file(filepath):
                         cell.border = thin_border
                     row_out += 1
 
-    new_wb.save(output_path)
-    messagebox.showinfo("Gotowe!", f"Plik zapisany jako:\n{output_path}")
+    # Zapis do BytesIO
+    output = BytesIO()
+    new_wb.save(output)
+    output.seek(0)
+    return output, f"{os.path.splitext(filename)[0]}_wynik.xlsx"
 
+# Strona HTML z uploadem
+HTML = """
+<!doctype html>
+<title>Mapa przedmiotów</title>
+<h2>Prześlij plik Excel (.xlsx)</h2>
+<form method=post enctype=multipart/form-data>
+  <input type=file name=file>
+  <input type=submit value=Prześlij>
+</form>
+"""
 
-# Okno GUI z drag & drop
-root = TkinterDnD.Tk()
-root.title("Mapa przedmotów")
-root.geometry("500x200")
+@app.route("/", methods=["GET", "POST"])
+def upload_file():
+    if request.method == "POST":
+        file = request.files["file"]
+        if not file.filename.lower().endswith(".xlsx"):
+            return "To nie jest plik Excel (.xlsx)"
+        output, out_name = process_file(file, file.filename)
+        return send_file(output, download_name=out_name, as_attachment=True)
+    return render_template_string(HTML)
 
-label = tk.Label(root, text="Przeciągnij plik Excel tutaj", font=("Arial", 14))
-label.pack(expand=True, padx=20, pady=20)
-
-def drop(event):
-    filepath = event.data.strip("{}")  # usuń ewentualne nawiasy
-    process_file(filepath)
-
-label.drop_target_register(DND_FILES)
-label.dnd_bind('<<Drop>>', drop)
-
-# Przyciski alternatywne
-button = tk.Button(root, text="Wybierz plik ręcznie", command=lambda: process_file(askopenfilename(filetypes=[("Excel files", "*.xlsx")])))
-button.pack(pady=10)
-
-root.mainloop()
+if __name__ == "__main__":
+    app.run(debug=True)
