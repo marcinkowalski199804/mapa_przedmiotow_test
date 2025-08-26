@@ -4,12 +4,13 @@ from openpyxl import load_workbook, Workbook
 from openpyxl.styles import PatternFill, Border, Side, Font, Alignment
 from io import BytesIO
 
+st.set_page_config(page_title="Mapa przedmiotów", layout="wide")
 st.title("Mapa przedmiotów")
 
 uploaded_file = st.file_uploader("Prześlij plik Excel (.xlsx)", type=["xlsx"])
 
 if uploaded_file:
-    # zawsze resetuj wskaźnik pliku przed każdym odczytem
+    # Wczytanie Excela z pamięcią
     uploaded_file.seek(0)
     wb = load_workbook(uploaded_file, data_only=True)
 
@@ -19,16 +20,7 @@ if uploaded_file:
         ws_baza = wb["Baza"]
         ws_stara = wb["STARA mapa"]
 
-        # diagnostyka
-        st.write("Pierwsze 5 wierszy Baza:")
-        for i, row in enumerate(ws_baza.iter_rows(min_row=1, max_row=5, values_only=True), 1):
-            st.write(f"Wiersz {i}: {row}")
-
-        st.write("Pierwsze 5 wierszy STARA mapa:")
-        for i, row in enumerate(ws_stara.iter_rows(min_row=1, max_row=5, values_only=True), 1):
-            st.write(f"Wiersz {i}: {row}")
-
-        # funkcja do czyszczenia nazwiska
+        # Funkcja czyszczenia nazwiska
         def clean_nazwisko(nazwisko):
             if not nazwisko:
                 return ""
@@ -44,9 +36,18 @@ if uploaded_file:
                 key = f"{imie.lower()} {clean_nazwisko(nazwisko.lower())}"
                 mail_map[key] = mail
 
-        def find_mail_safe(imie, nazwisko, mail_map):
+        def find_mail_safe(imie, nazwisko):
             key_full = f"{imie.lower()} {clean_nazwisko(nazwisko.lower())}"
-            return mail_map.get(key_full, "BRAK MAILA")
+            if key_full in mail_map:
+                return mail_map[key_full]
+            # alternatywnie szukaj po czystym nazwisku
+            candidates = []
+            for k, mail in mail_map.items():
+                k_imie, k_nazwisko = k.split(" ", 1)
+                k_nazwisko_clean = clean_nazwisko(k_nazwisko)
+                if imie.lower() == k_imie and nazwisko.lower() == k_nazwisko_clean:
+                    candidates.append(mail)
+            return candidates[0] if len(candidates)==1 else "BRAK MAILA"
 
         # Style Excel
         color_map = {"LO": "ADD8E6", "1-3 SP": "FFFF99", "4-8 SP": "CCFFCC"}
@@ -62,7 +63,7 @@ if uploaded_file:
         ws_brak_id = new_wb.create_sheet("BRAKUJĄCE ID")
         ws_brak_mail = new_wb.create_sheet("BRAKUJĄCE EMAILE")
 
-        # Nagłówki MAPA PRZEDMIOTÓW
+        # Nagłówki
         headers = ["ID", "Email", "Imię", "Nazwisko", "Przedmiot", "Poziom edukacyjny", "Rozszerzenie", "Aktywny"]
         for col_num, header in enumerate(headers, 1):
             cell = ws_mapa.cell(row=1, column=col_num, value=header)
@@ -78,7 +79,6 @@ if uploaded_file:
         brak_id_set = set()
         brak_mail_set = set()
 
-        # Funkcja do dodawania wiersza do MAPA PRZEDMIOTÓW
         def add_row(_id, imie, nazwisko, mail, subj, typ, rozszerzenie, aktywny):
             nonlocal row_out
             values = [_id, mail, imie, nazwisko, subj, typ, rozszerzenie, aktywny]
@@ -91,14 +91,14 @@ if uploaded_file:
                 if col_num == 8:
                     cell.fill = green_fill
                 cell.border = thin_border
-            row_out += 1
+            row_out +=1
 
-            if not _id and (imie, nazwisko) not in brak_id_set:
-                ws_brak_id.append([imie, nazwisko])
-                brak_id_set.add((imie, nazwisko))
-            if mail == "BRAK MAILA" and (imie, nazwisko) not in brak_mail_set:
-                ws_brak_mail.append([imie, nazwisko])
-                brak_mail_set.add((imie, nazwisko))
+            if not _id and (imie,nazwisko) not in brak_id_set:
+                ws_brak_id.append([imie,nazwisko])
+                brak_id_set.add((imie,nazwisko))
+            if mail=="BRAK MAILA" and (imie,nazwisko) not in brak_mail_set:
+                ws_brak_mail.append([imie,nazwisko])
+                brak_mail_set.add((imie,nazwisko))
 
         # Przetwarzanie danych z Baza
         for row in ws_baza.iter_rows(min_row=2, values_only=True):
@@ -108,19 +108,17 @@ if uploaded_file:
             sp_subjects = row[4] if row[4] else ""
             lo_subjects = row[5] if row[5] else ""
 
-            mail = find_mail_safe(imie, nazwisko, mail_map)
+            mail = find_mail_safe(imie,nazwisko)
 
-            # SP
             if sp_subjects:
                 for subj in str(sp_subjects).split(","):
-                    subj = subj.strip()
+                    subj=subj.strip()
                     if subj:
-                        typ = "1-3 SP" if subj.lower() == "edukacja wczesnoszkolna" else "4-8 SP"
+                        typ="1-3 SP" if subj.lower()=="edukacja wczesnoszkolna" else "4-8 SP"
                         add_row(_id, imie, nazwisko, mail, subj, typ, "NIE", "TAK")
-            # LO
             if lo_subjects:
                 for subj in str(lo_subjects).split(","):
-                    subj = subj.strip()
+                    subj=subj.strip()
                     if subj:
                         add_row(_id, imie, nazwisko, mail, subj, "LO", "TAK", "TAK")
 
