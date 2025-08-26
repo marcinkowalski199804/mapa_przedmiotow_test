@@ -11,7 +11,7 @@ st.set_page_config(layout="wide")
 
 # --- TUTAJ MOŻESZ WSTAWIĆ SWÓJ OBRAZ ---
 # Wklej bezpośredni link do logo w miejsce 'https://placehold.co/200x50'
-st.image("https://sklep.szkolawchmurze.org/wp-content/uploads/2022/07/cropped-Szkola-w-chmurze_logo1_granat-RGB-1024x187.png", use_container_width==False)
+st.image("https://sklep.szkolawchmurze.org/wp-content/uploads/2022/07/cropped-Szkola-w-chmurze_logo1_granat-RGB-1024x187.png", use_container_width=False)
 # ----------------------------------------
 
 # Tytuł aplikacji
